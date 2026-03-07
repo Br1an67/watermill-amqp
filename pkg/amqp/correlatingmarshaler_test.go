@@ -110,3 +110,39 @@ func BenchmarkCorrelatingMarshaler_Unmarshal(b *testing.B) {
 
 	assert.NoError(b, err)
 }
+
+func TestCorrelatingMarshaler_non_string_headers(t *testing.T) {
+	marshaler := amqp.CorrelatingMarshaler{}
+
+	msg := message.NewMessage(watermill.NewUUID(), []byte("payload"))
+	msg.Metadata.Set("foo", "bar")
+
+	marshaled, err := marshaler.Marshal(msg)
+	require.NoError(t, err)
+
+	// Simulate non-string headers added by RabbitMQ (e.g., x-death from dead letter queues)
+	delivery := publishingToDelivery(marshaled)
+	delivery.Headers["x-death"] = []interface{}{
+		map[string]interface{}{
+			"queue":     "my-queue",
+			"reason":    "rejected",
+			"count":     1,
+			"time":      "2024-01-01T00:00:00Z",
+			"exchange":  "",
+			"routing-keys": []string{"my-routing-key"},
+		},
+	}
+	delivery.Headers["x-array"] = []string{"a", "b", "c"}
+	delivery.Headers["x-int"] = 42
+
+	unmarshaledMsg, err := marshaler.Unmarshal(delivery)
+	require.NoError(t, err)
+
+	// String headers should still be preserved
+	assert.Equal(t, "bar", unmarshaledMsg.Metadata.Get("foo"))
+
+	// Non-string headers should be skipped (not cause an error)
+	assert.Empty(t, unmarshaledMsg.Metadata.Get("x-death"))
+	assert.Empty(t, unmarshaledMsg.Metadata.Get("x-array"))
+	assert.Empty(t, unmarshaledMsg.Metadata.Get("x-int"))
+}

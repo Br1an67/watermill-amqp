@@ -84,11 +84,12 @@ func (d DefaultMarshaler) Unmarshal(amqpMsg amqp.Delivery) (*message.Message, er
 			continue
 		}
 
-		var ok bool
-		msg.Metadata[key], ok = value.(string)
+		valueStr, ok := value.(string)
 		if !ok {
-			return nil, errors.Errorf("metadata %s is not a string, but %#v", key, value)
+			// skipping non-string header (e.g., x-death from dead letter queues)
+			continue
 		}
+		msg.Metadata[key] = valueStr
 	}
 
 	return msg, nil
